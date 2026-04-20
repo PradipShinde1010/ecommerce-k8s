@@ -1,0 +1,593 @@
+ChatGPT - Microservices App
+==============================
+https://chatgpt.com/c/694ef582-2de0-8322-9a05-ad9d8b1c06f9
+
+https://github.com/KastroVKiran/ecommerce-k8s.git
+
+🌐 Installation of EBS CSI Drivers
+IAM Requirement for Worker Nodes:
+	Attach AmazonEBSCSIDriverPolicy to the IAM Role of Worker Nodes
+
+EKSCTL doesn't know which region to use. Set the region explicitly
+	eksctl utils associate-iam-oidc-provider --cluster kastro-cluster --region us-east-1 --approve
+
+Check if the EBS CSI driver pods are running or not
+	kubectl get pods -n kube-system | grep ebs-csi
+
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+helm version
+
+helm repo add aws-ebs-csi-driver https://kubernetes-sigs.github.io/aws-ebs-csi-driver
+helm repo update
+helm repo list
+
+Install EBS CSI driver
+helm install aws-ebs-csi-driver aws-ebs-csi-driver/aws-ebs-csi-driver \
+    --namespace kube-system \
+    --create-namespace \
+    --set image.repository=602401143452.dkr.ecr.us-east-1.amazonaws.com/eks/aws-ebs-csi-driver
+
+Verify installation
+kubectl get pods -n kube-system | grep ebs-csi
+#You should see controller and node pods in Running state.
+------------------------------------------------------------------------------------------------------------------------------
+sudo usermod -aG docker jenkins
+sudo systemctl restart docker
+sudo systemctl restart Jenkins
+
+🌐 Install NGINX Ingress Controller (This is tested)
+kubectl create namespace ingress-nginx
+
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+
+helm install ingress-nginx ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx
+
+kubectl get pods -n ingress-nginx ---> You will see the pod in running status
+kubectl get svc -n ingress-nginx ---> You will see LB URL. Using this we will access the app
+
+Copy the EXTERNAL-IP of service
+
+Ingress yml (update this in the repo)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shop-ingress
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: shop.kastrodevops.link
+      http:
+        paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: frontend-service
+              port:
+                number: 80
+
+    - host: users.kastrodevops.link
+      http:
+        paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: users-service
+              port:
+                number: 80
+
+    - host: cart.kastrodevops.link
+      http:
+        paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: cart-service
+              port:
+                number: 80
+
+    - host: shipping.kastrodevops.link
+      http:
+        paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: shipping-service
+              port:
+                number: 80
+
+    - host: payment.kastrodevops.link
+      http:
+        paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: payment-service
+              port:
+                number: 80
+
+
+🌐 2) Route 53 subdomains configuration (important)
+Hosted zone: kastrodevops.link
+Create A records (Alias):
+Record name	Target
+shop.kastrodevops.link	ELB DNS of nginx-ingress
+users.kastrodevops.link	ELB DNS
+cart.kastrodevops.link	ELB DNS
+shipping.kastrodevops.link	ELB DNS
+payment.kastrodevops.link	ELB DNS
+Alias = YES
+Type = A
+Target = ELB from NGINX ingress
+
+
+Configure dockerhub creds and GitHub PAT
+GITHUB CREDS has to configured as secret text; with id as "git-creds"
+
+Install ARGO CD
+Install ARGOCD using HELM
+helm repo add argo https://argoproj.github.io/argo-helm
+helm repo update
+
+
+In production, it is always suggested to create a custom namespace ----> kubectl create namespace argocd ----> Lets install argocd in the namespace 'argocd' ----> helm install argocd argo/argo-cd --namespace argocd ----> kubectl get all -n argocd ----> You will see multiple things which are running ----> Under 'services' you can see 'argo-cd server' and the type as ClusterIP. But to access outside of the cluster, we need Load Balancer. So lets edit this ClusterIP to LoadBalancer ----> For this i will use patch ----> 
+
+EXPOSE ARGOCD SERVER:
+kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}' ----> kubectl get all -n argocd ----> Now you can see the service called 'argo-cd server' changed to Load Balancer instead of ClusterIP ----> Copy the load balancer url ----> This is one way of getting the loadbalancer url. Another way is to install "jq" (J Query) ----> 
+
+yum install jq -y
+
+kubectl get svc argocd-server -n argocd -o json | jq --raw-output '.status.loadBalancer.ingress[0].hostname'
+The above command will provide load balancer URL to access ARGO CD
+
+Access the argocd using teh above load balancer url ----> Username: admin, 
+
+TO GET ARGO CD PASSWORD:
+------------------------------------------
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+4wlJbue2odEnZZGa
+----> Copy the password and provide in argo cd console ----> You will see the argo cd console ----> Here is where we will do the k8s deployments ----> Click on 'New App' ----> App Name: swiggy-app, Project name: default, Sync policy: Automatic, Source - Repo URL: <Repo URL> ----> Revision: HEAD, Path: ./ ----> Cluster URL: Select the one from dropdown, Namespace: default (If you want to deploy the pods in custom namespace, create that namespace and provide here) ----> Create ----> Click on the 'swiggy-app' ----> You can see the details of pods ----> kubectl get svc ----> Copy the load balancer url and access the app in new tab of browser ----> Lets say you want to change the image name in repo, you can change. Automatically you will see the modified app ----> Goto repo, change the image name, replicas count ----> Based on this everything will get updated in argocd ----> Goto Argocd ----> Click on 'sync' and 'snchronize' ----> Automatically the new app will get deployed. Here we dint used Jenkins but still we were able to automate the deployment process. 
+
+
+JENKINSFILE
+pipeline {
+  agent any
+
+  environment {
+    REGISTRY = 'kastrov'
+    IMAGE_TAG = "${env.BUILD_NUMBER}"
+  }
+
+  stages {
+
+    stage('Checkout from GitHub') {
+      steps {
+        checkout([$class: 'GitSCM',
+          branches: [[name: '*/main']],
+          userRemoteConfigs: [[
+            url: 'https://github.com/KastroVKiran/ecommerce-k8s.git'
+          ]]
+        ])
+      }
+    }
+
+    stage('Login to DockerHub') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: 'dockerhub-creds',
+          usernameVariable: 'USER',
+          passwordVariable: 'PASS'
+        )]) {
+          sh """
+            echo "$PASS" | docker login -u "$USER" --password-stdin
+          """
+        }
+      }
+    }
+
+    stage('Build & Push Docker Images') {
+      steps {
+        sh """
+          docker build -t ${REGISTRY}/frontend-service:${IMAGE_TAG} ./frontend-service
+          docker push ${REGISTRY}/frontend-service:${IMAGE_TAG}
+
+          docker build -t ${REGISTRY}/users-service:${IMAGE_TAG} ./users-service
+          docker push ${REGISTRY}/users-service:${IMAGE_TAG}
+
+          docker build -t ${REGISTRY}/cart-service:${IMAGE_TAG} ./cart-service
+          docker push ${REGISTRY}/cart-service:${IMAGE_TAG}
+
+          docker build -t ${REGISTRY}/shipping-service:${IMAGE_TAG} ./shipping-service
+          docker push ${REGISTRY}/shipping-service:${IMAGE_TAG}
+
+          docker build -t ${REGISTRY}/payment-service:${IMAGE_TAG} ./payment-service
+          docker push ${REGISTRY}/payment-service:${IMAGE_TAG}
+        """
+      }
+    }
+
+    stage('Update Kubernetes YAML image tags') {
+      steps {
+        sh '''
+          sed -i "s|image:.*frontend-service.*|image: kastrov/frontend-service:${IMAGE_TAG}|g" k8s-manifests/frontend-deploy.yaml
+          sed -i "s|image:.*users-service.*|image: kastrov/users-service:${IMAGE_TAG}|g" k8s-manifests/users-deploy.yaml
+          sed -i "s|image:.*cart-service.*|image: kastrov/cart-service:${IMAGE_TAG}|g" k8s-manifests/cart-deploy.yaml
+          sed -i \"s|image:.*shipping-service.*|image: kastrov/shipping-service:${IMAGE_TAG}|g\" k8s-manifests/shipping-deploy.yaml
+          sed -i \"s|image:.*payment-service.*|image: kastrov/payment-service:${IMAGE_TAG}|g\" k8s-manifests/payment-deploy.yaml
+
+          echo "---------------- UPDATED IMAGES ----------------"
+          grep -n \"image:\" k8s-manifests/*.yaml
+        '''
+      }
+    }
+
+    stage('Commit & Push to GitHub (Trigger ArgoCD)') {
+      steps {
+        withCredentials([string(
+          credentialsId: 'git-creds',
+          variable: 'GIT_TOKEN'
+        )]) {
+          sh """
+            git config user.email "kastro@gmail.com"
+            git config user.name "kastro"
+
+            git add k8s-manifests/*.yaml
+
+            git diff --cached || true
+            git diff --quiet --cached || git commit -m "Update image tags to ${IMAGE_TAG}"
+
+            git push https://kastro:${GIT_TOKEN}@github.com/KastroVKiran/ecommerce-k8s.git HEAD:main
+          """
+        }
+      }
+    }
+
+  }
+}
+
+------------------------------------------------------------------------------------------------------------------------------
+🌐 Install Ingress Controller (NGINX)
+Create namespace:
+kubectl create namespace ingress-nginx
+Add helm repo:
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+
+Install:
+helm install ingress-nginx ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx
+
+Check:
+kubectl get pods -n ingress-nginx
+kubectl get svc -n ingress-nginx
+
+You will get an EXTERNAL-IP → this is your app entrypoint.
+af46d8ed6f15b43029dafb8bd7a84a71-852612486.us-east-1.elb.amazonaws.com
+------------------------------------------------------------------------------------------------------------------------------
+🌐 Install AWS Load Balancer Controller
+
+Associate OIDC provider (only once per cluster)
+eksctl utils associate-iam-oidc-provider \
+  --region us-east-1 \
+  --cluster kastro-cluster \
+  --approve
+
+Create IAM policy required by controller
+curl -o iam_policy.json \
+  https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.8.1/docs/install/iam_policy.json
+
+Create the policy:
+aws iam create-policy \
+  --policy-name AWSLoadBalancerControllerIAMPolicy \
+  --policy-document file://iam_policy.json
+
+Create service account with IRSA
+eksctl create iamserviceaccount \
+  --cluster kastro-cluster \
+  --namespace kube-system \
+  --name aws-load-balancer-controller \
+  --attach-policy-arn arn:aws:iam::<ACCOUNT_ID>:policy/AWSLoadBalancerControllerIAMPolicy \
+  --approve
+
+Add Helm repo
+helm repo add eks https://aws.github.io/eks-charts
+helm repo update
+
+Install controller
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  -n kube-system \
+  --set clusterName=kastro-cluster \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=aws-load-balancer-controller
+
+To verify the pods of aws load balancer controller;
+kubectl get pods -n kube-system | grep load
+
+Note: Till the time we apply the ingress manifest file, we wont be able to see the load balancer url to access the app
+
+=======
+Architecture – what we are deploying
+Microservice		Role			DB
+users-service		login & register	mysql-users
+cart-service		add/view cart	mysql-cart
+shipping-service	shipping details	mysql-shipping
+payment-service	dummy payment	mysql-payment
+
+Ingress LB URL /
+   ↓
+frontend-service
+   ↓
+/users  → users-service
+/cart   → cart-service
+/shipping → shipping-service
+/payment → payment-service
+
+
+All exposed via Ingress paths
+/users
+/cart
+/shipping
+/payment
+
+------------------------------------------------------------------------
+🌐 Install Docker
+apt  install docker.io -y
+
+Login to dockerhub
+docker login -u kastrov
+
+BUILD & PUSH DOCKER IMAGES
+docker build -t kastrov/frontend-service ./frontend-service
+docker push kastrov/frontend-service
+
+docker build -t kastrov/users-service ./users-service
+docker push kastrov/users-service
+
+docker build -t kastrov/cart-service ./cart-service
+docker push kastrov/cart-service
+
+docker build -t kastrov/shipping-service ./shipping-service
+docker push kastrov/shipping-service
+
+docker build -t kastrov/payment-service ./payment-service
+docker push kastrov/payment-service
+
+APPLY EVERYTHING IN ORDER
+👉 First databases
+kubectl apply -f mysql-users.yaml
+kubectl apply -f mysql-cart.yaml
+kubectl apply -f mysql-shipping.yaml
+kubectl apply -f mysql-payment.yaml
+
+Verify database pods
+kubectl get pods -l app=mysql-users
+kubectl get pods -l app=mysql-cart
+kubectl get pods -l app=mysql-shipping
+kubectl get pods -l app=mysql-payment
+
+All the database pods will come into the running state
+
+👉 Then apps
+kubectl apply -f frontend-deploy.yaml
+kubectl apply -f users-deploy.yaml
+kubectl apply -f cart-deploy.yaml
+kubectl apply -f shipping-deploy.yaml
+kubectl apply -f payment-deploy.yaml
+
+Verify microservices pods
+kubectl get pods
+kubectl get svc
+
+👉 Then ingress
+kubectl apply -f ingress.yaml
+kubectl get svc -n ingress-nginx
+
+kubectl get ing
+kubectl get ingress shop-ingress
+
+Access the app using the URLs
+/                 → Front page
+/users            → Register user
+/cart             → Select products & cart
+/shipping         → Enter address
+/payment          → Dummy payment
+/success          → Order complete
+
+Note: You will see only the home page of the app, not the other microservices. The reason is ALB does NOT rewrite paths (unlike NGINX).
+The below is just an explanation to the students;
+✅ You have 3 valid solutions (pick one)
+🟢 Option 1 — EASIEST: change apps to support prefixed paths
+Example (shipping service):
+Change
+@app.route("/", methods=["GET", "POST"])
+
+to
+@app.route("/", methods=["GET", "POST"])
+@app.route("/shipping", methods=["GET", "POST"])
+
+likewise for all microservices we have to do
+
+🟢 Option 2 — Recommended for microservices: use separate hostnames
+Instead of URL paths, use domains:
+shop.example.com          -> frontend
+users.example.com         -> users service
+cart.example.com          -> cart service
+shipping.example.com      -> shipping service
+payment.example.com       -> payment service
+If we do this, the ingress yml will get updated
+
+We will prefer option 2
+
+🟢 Option 3 — Go back to NGINX ingress if you need rewrite
+This is not something which we dont want to do as ingress got deprecated
+
+Lets go with option 3;
+Create Route 53 records for each subdomain
+Go to:
+AWS Console → Route 53 → Hosted Zones → kastrodevops.link
+
+For EACH of the following, click:
+👉 Create record
+Create A record (Alias)
+
+Record name	Type		Value
+shop			A (Alias)	ALB DNS name
+users			A (Alias)	ALB DNS name
+cart				A (Alias)	ALB DNS name
+shipping			A (Alias)	ALB DNS name
+payment		A (Alias)	ALB DNS name
+
+All subdomains will point to the same ALB.
+
+URL								Service
+http://shop.kastrodevops.link			frontend
+http://users.kastrodevops.link 		users
+http://cart.kastrodevops.link 			cart
+http://shipping.kastrodevops.link		shipping
+http://payment.kastrodevops.link		payment
+
+==========================
+Working with database pods
+
+When creating users in the homepage of the app, if you face any error follow as below;
+Create table for USERS service
+kubectl exec -it mysql-users-0 -- bash
+mysql -u root -p
+Password:
+password
+
+USE usersdb;
+CREATE TABLE users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  username VARCHAR(255)
+);
+SHOW TABLES;
+EXIT;
+exit
+
+Create table for CART service
+kubectl exec -it mysql-cart-0 -- bash
+mysql -u root -p
+Password: password
+USE cartdb;
+
+CREATE TABLE cart (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  item VARCHAR(255)
+);
+EXIT;
+exit
+
+Create table for SHIPPING service
+kubectl exec -it mysql-shipping-0 -- bash
+mysql -u root -p
+Password: password
+USE shippingdb;
+
+CREATE TABLE address (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  address VARCHAR(255)
+);
+EXIT;
+exit
+
+Create table for PAYMENT service
+kubectl exec -it mysql-payment-0 -- bash
+mysql -u root -p
+Password: password
+USE paymentdb;
+
+CREATE TABLE pay (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  amount VARCHAR(255)
+);
+EXIT;
+exit
+
+Access the app. Register. Add items in cart. Do payment
+
+
+How to see number of registered users & orders?
+🧑‍🤝‍🧑 Count users registered
+kubectl exec -it mysql-users-0 -- bash
+USE usersdb;
+SELECT COUNT(*) FROM users;
+SELECT * FROM users;
+
+🛒 Count total cart items added
+kubectl exec -it deploy/mysql-cart -- mysql -u root -p
+USE cartdb;
+SELECT COUNT(*) FROM cart;
+SELECT * FROM cart;
+
+🚚 Count addresses (orders shipped)
+USE shippingdb;
+SELECT COUNT(*) FROM address;
+SELECT * FROM address;
+
+💳 Count completed payments (orders)
+USE paymentdb;
+SELECT COUNT(*) FROM pay;
+SELECT * FROM pay;
+
+
+
+If you want to do any changes in the app, after doing the changes, build the image (image can be built as "latest" only, because we have given "ImagePullPolicy:Always" in all the manifest files. Or, we can give version tag for the image as well;
+🐳 REBUILD & PUSH ALL IMAGES
+docker build -t kastrov/frontend-service ./frontend-service
+docker push kastrov/frontend-service
+
+docker build -t kastrov/users-service ./users-service
+docker push kastrov/users-service
+
+docker build -t kastrov/cart-service ./cart-service
+docker push kastrov/cart-service
+
+docker build -t kastrov/shipping-service ./shipping-service
+docker push kastrov/shipping-service
+
+docker build -t kastrov/payment-service ./payment-service
+docker push kastrov/payment-service
+
+☸️ REDEPLOY APPS
+kubectl rollout restart deployment frontend-service
+kubectl rollout restart deployment users-service
+kubectl rollout restart deployment cart-service
+kubectl rollout restart deployment shipping-service
+kubectl rollout restart deployment payment-service
+
+To see the logs;
+kubectl logs deployment/users-service
+kubectl logs deployment/cart-service
+kubectl logs deployment/shipping-service
+kubectl logs deployment/payment-service
+kubectl logs deployment/frontend-service
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+docker build --no-cache -t kastrov/payment-service:latest .
+docker push kastrov/payment-service:latest
+
+kubectl rollout restart deployment/payment-service
