@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: cart-service
-          image: pradipshinde/cart-service:2
+          image: pradipshinde/cart-service:3
           imagePullPolicy: Always
 
           ports:
