@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: shipping-service
-          image: pradipshinde/shipping-service:2
+          image: pradipshinde/shipping-service:3
           imagePullPolicy: Always
 
           ports:
