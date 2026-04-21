@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: users-service
-          image: pradipshinde/users-service:2
+          image: pradipshinde/users-service:3
           imagePullPolicy: Always
 
           ports:
