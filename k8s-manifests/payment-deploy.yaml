@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: payment-service
-          image: pradipshinde/payment-service:2
+          image: pradipshinde/payment-service:3
           imagePullPolicy: Always
 
           ports:
