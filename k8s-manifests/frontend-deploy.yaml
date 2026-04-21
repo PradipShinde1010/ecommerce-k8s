@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: frontend-service
-          image: pradipshinde/frontend-service:2
+          image: pradipshinde/frontend-service:3
           imagePullPolicy: Always
 
           ports:
